@@ -1,0 +1,15 @@
+﻿vars:
+  address-groups:
+    HOME_NET: "[10.10.0.0/16]"
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - local.rules
+af-packet:
+  - interface: eth0
+outputs:
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /data/alerts/eve.json
+      types:
+        - alert

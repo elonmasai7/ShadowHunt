@@ -1,0 +1,64 @@
+﻿version: "3.9"
+services:
+  backend:
+    build: ./backend
+    container_name: shadowhunt-backend
+    volumes:
+      - ./data:/data
+      - ./simulations:/simulations:ro
+    environment:
+      - DATA_DIR=/data
+    networks: [shadow_net]
+    depends_on: [detector]
+    ports: ["8000:8000"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  simulator:
+    build: ./simulations
+    container_name: shadowhunt-simulator
+    volumes:
+      - ./data:/data
+    networks: [shadow_net]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  detector:
+    build: ./detection
+    container_name: shadowhunt-detector
+    volumes:
+      - ./data:/data
+      - ./detection/suricata/rules:/etc/suricata/rules:ro
+      - ./detection/suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
+      - ./detection/ossec/ossec.conf:/var/ossec/etc/ossec.conf:ro
+    networks: [shadow_net]
+    cap_add: ["NET_ADMIN", "NET_RAW"]
+    security_opt: ["no-new-privileges:true"]
+
+  dashboard:
+    build: ./dashboard
+    container_name: shadowhunt-dashboard
+    volumes:
+      - ./data:/data
+    networks: [shadow_net]
+    depends_on: [backend]
+    ports: ["8501:8501"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  dashboard_system:
+    build: ./dashboard
+    container_name: shadowhunt-system-dashboard
+    command: ["streamlit", "run", "streamlit_system.py", "--server.address=0.0.0.0", "--server.port=8502"]
+    volumes:
+      - ./data:/data
+    networks: [shadow_net]
+    depends_on: [backend]
+    ports: ["8502:8502"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  shadow_net:
+    driver: bridge
+    internal: true

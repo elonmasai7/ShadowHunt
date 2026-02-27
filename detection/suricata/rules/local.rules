@@ -1,0 +1,9 @@
+﻿# v1 direct-marker detections
+alert udp any any -> any 9999 (msg:"ShadowHunt T1078 simulation marker"; content:"SHADOWHUNT_T1078_SIM"; sid:100001; rev:2;)
+alert udp any any -> any 9999 (msg:"ShadowHunt T1003 simulation marker"; content:"SHADOWHUNT_T1003_SIM"; sid:100002; rev:2;)
+alert udp any any -> any 9999 (msg:"ShadowHunt T1021 simulation marker"; content:"SHADOWHUNT_T1021_SIM"; sid:100003; rev:2;)
+
+# v2 hardened demo rules for benign base64-encoded markers
+alert udp any any -> any 9999 (msg:"ShadowHunt T1078 marker b64"; content:"U0hBRE9XSFVOVF9UMTA3OF9TSU0="; sid:100011; rev:1;)
+alert udp any any -> any 9999 (msg:"ShadowHunt T1003 marker b64"; content:"U0hBRE9XSFVOVF9UMTAwM19TSU0="; sid:100012; rev:1;)
+alert udp any any -> any 9999 (msg:"ShadowHunt T1021 marker b64"; content:"U0hBRE9XSFVOVF9UMTAyMV9TSU0="; sid:100013; rev:1;)
