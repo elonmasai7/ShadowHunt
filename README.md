@@ -1,50 +1,173 @@
 ﻿# ShadowHunt
 
-ShadowHunt is a lightweight, containerized ATT&CK simulation and detection framework for education and defensive research.
+ShadowHunt is a containerized cyber-range simulator with dual dashboards:
+1. Real Dashboard (Operational Mode): live red-team simulation + real-time telemetry.
+2. Demo Dashboard (Presentation Mode): preloaded safe datasets for conference/demo playback.
 
-## Ethical Use
-Use only in isolated lab environments you own and control.
-No outbound internet, no real credentials, no production systems.
-All attack activity in this repo is simulated marker generation only.
+## Ethical Boundaries
+- Isolated lab only.
+- Synthetic event generation only.
+- No real credential theft, no production targeting.
 
-## Features
-- Safe ATT&CK simulations: T1078, T1003, T1021 (synthetic events)
-- Multi-step attack chains with adversary profiles: low, medium, high
-- Realistic noise injection and controlled false-positive generation
-- Detector hardening demo: legacy vs hardened mode for benign encoded marker evasion
-- Coverage scoring and ATT&CK gap analysis in dashboard
-- Privacy: differential privacy metrics + hashed identifiers
-- Dual dashboards: ATT&CK operations and real system telemetry
+## Complete Folder Structure
+```text
+ShadowHunt/
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── simulation_engine.py
+│   │   ├── telemetry.py
+│   │   ├── reporting.py
+│   │   └── security_utils.py
+│   ├── Dockerfile
+│   └── requirements.txt
+├── detection/
+│   ├── detector_service.py
+│   ├── rule_engine.py
+│   ├── ml/
+│   ├── privacy/
+│   ├── suricata/
+│   └── ossec/
+├── dashboard/
+│   ├── streamlit_app.py
+│   ├── streamlit_system.py
+│   ├── streamlit_demo.py
+│   ├── demo_data/demo_dataset.json
+│   ├── Dockerfile
+│   └── requirements.txt
+├── simulations/
+├── docker-compose.yml
+├── k8s/
+│   ├── namespace.yaml
+│   ├── backend-deployment.yaml
+│   ├── detector-deployment.yaml
+│   ├── dashboard-deployment.yaml
+│   └── demo-dashboard-deployment.yaml
+└── helm/shadowhunt/
+    ├── Chart.yaml
+    ├── values.yaml
+    └── templates/
+```
 
-## Quick Start
+## Architecture
+### Backend (FastAPI)
+- REST APIs:
+  - `POST /start_sim`
+  - `POST /stop_sim`
+  - `POST /trigger_attack`
+  - `GET /get_alerts`
+  - `GET /get_metrics`
+  - `GET /generate_report`
+  - plus compatibility routes (`/start_chain`, `/detect`, `/coverage`, `/report`)
+- `WebSocket /ws/telemetry` for live telemetry snapshots.
+- Simulation orchestration engine with modular attack generation.
+- Privacy controls (anonymization toggle + hash masking).
+- Report generation (JSON + PDF + verification hash).
+
+### Simulation Layer
+- Modular attack generation:
+  - `T1078` valid accounts
+  - `T1003` credential dump markers
+  - `T1021` lateral movement (Impacket-style labels)
+  - brute-force attempts
+  - obfuscated evasion attempts
+- Mock AD behavior fields and container victim metadata.
+- Headless API control for chain runs and single-technique triggering.
+
+### Detection Layer
+- Rule-based simulation (Suricata/Snort style).
+- HIDS simulation (OSSEC-like brute-force correlation).
+- ML anomaly simulation with confidence telemetry.
+- False-positive tracking and evasion success tracking.
+- Severity scoring in alerts.
+
+### Frontend
+- `streamlit_app.py`: Real-time operational SOC dashboard.
+- `streamlit_demo.py`: presentation-safe dataset playback dashboard.
+- `streamlit_system.py`: system telemetry dashboard.
+
+## Quick Start (Local)
 ```bash
 docker compose up -d --build
 ```
 
 Open:
-- API: http://localhost:8000/docs
-- ATT&CK Dashboard: http://localhost:8501
-- System Dashboard: http://localhost:8502
+- API docs: `http://localhost:8000/docs`
+- Real dashboard: `http://localhost:8501`
+- System dashboard: `http://localhost:8502`
+- Demo dashboard: `http://localhost:8503`
 
-## API
-- POST `/start_sim` with `{"technique":"T1078|T1003|T1021"}`
-- POST `/start_chain` with `{"profile":"low|medium|high","include_noise":true,"evasion":false}`
-- POST `/detection/mode/{legacy|hardened}`
-- GET `/profiles`
-- GET `/detect`
-- GET `/coverage`
-- GET `/report`
-- GET `/system/metrics`
-- GET `/system/status`
+## Key API Examples
+```bash
+curl -X POST http://localhost:8000/start_simulation \
+  -H "Content-Type: application/json" \
+  -d '{"profile":"high","include_noise":true,"evasion":true}'
 
-## Security Model
-- Internal Docker network (`internal: true`)
-- Dropped Linux capabilities where possible
-- `no-new-privileges` enabled
-- Optional host iptables egress blocking script in `docker/`
+curl -X POST http://localhost:8000/trigger_attack \
+  -H "Content-Type: application/json" \
+  -d '{"technique":"T1021","evasion":true,"count":20}'
 
-## Development Notes
-OSSEC config is provided for extension, but the default demo path uses synthetic JSON logs + rule engine + ML + privacy stage to stay lean.
+curl -X POST http://localhost:8000/stop_sim
+curl http://localhost:8000/get_alerts
+curl http://localhost:8000/get_metrics
+curl http://localhost:8000/generate_report
+```
+
+## Kubernetes Deployment
+### Raw manifests
+```bash
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/backend-deployment.yaml
+kubectl apply -f k8s/detector-deployment.yaml
+kubectl apply -f k8s/dashboard-deployment.yaml
+kubectl apply -f k8s/demo-dashboard-deployment.yaml
+```
+
+### Helm skeleton
+```bash
+helm upgrade --install shadowhunt ./helm/shadowhunt -n shadowhunt --create-namespace
+```
+
+## Example Report Format
+Generated by `GET /generate_report`:
+```json
+{
+  "generated_at": "2026-02-27T18:50:00Z",
+  "mode": "hardened",
+  "totals": {
+    "attack_count": 120,
+    "alert_count": 138,
+    "false_positives": 9,
+    "evasion_attempts": 25,
+    "evasion_success": 3
+  },
+  "mitre_coverage": {
+    "T1078": 24,
+    "T1003": 21,
+    "T1021": 19,
+    "BRUTE": 28,
+    "EVASION": 28
+  },
+  "verification": {
+    "sha256": "....",
+    "ledger_sim": "block://shadowhunt/...."
+  }
+}
+```
+
+## Security Considerations
+- Internal Docker networks (`shadow_net`, `victim_net`) to isolate lab traffic.
+- Reduced container privileges (`cap_drop`, `no-new-privileges`).
+- Default anonymization of PII-like fields in telemetry view.
+- Simulation-only payload markers, not exploit code.
+- Report hashing for tamper-evident demo workflows.
+
+## Future Roadmap (v2 Hardening)
+- Move from simulated ML confidence to calibrated model probabilities.
+- Add per-technique adaptive rule patch suggestions.
+- Add authenticated API access and signed report export.
+- Add full ATT&CK matrix scoring by tactic with historical trend baselines.
+- Integrate real packet replay for deterministic PCAP-backed demos.
 
 ## License
 MIT

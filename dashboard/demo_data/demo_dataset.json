@@ -1,0 +1,142 @@
+{
+  "events": [
+    {
+      "ts": "2026-02-27T18:00:01Z",
+      "technique": "T1078",
+      "action": "valid_account_login",
+      "result": "success"
+    },
+    {
+      "ts": "2026-02-27T18:00:05Z",
+      "technique": "T1003",
+      "action": "credential_dump_marker",
+      "result": "success"
+    },
+    {
+      "ts": "2026-02-27T18:00:09Z",
+      "technique": "T1021",
+      "action": "impacket_psexec",
+      "result": "success"
+    },
+    {
+      "ts": "2026-02-27T18:00:12Z",
+      "technique": "BRUTE",
+      "action": "bruteforce_attempt",
+      "result": "failure"
+    },
+    {
+      "ts": "2026-02-27T18:00:16Z",
+      "technique": "EVASION",
+      "action": "obfuscated_payload_delivery",
+      "result": "success"
+    }
+  ],
+  "alerts_v1": [
+    {
+      "detector": "suricata_snort_sim",
+      "alert_type": "rule_match",
+      "detected": true,
+      "technique": "T1078"
+    },
+    {
+      "detector": "suricata_snort_sim",
+      "alert_type": "rule_match",
+      "detected": true,
+      "technique": "T1003"
+    },
+    {
+      "detector": "suricata_snort_sim",
+      "alert_type": "rule_bypassed",
+      "detected": false,
+      "technique": "EVASION"
+    }
+  ],
+  "alerts_v2": [
+    {
+      "detector": "suricata_snort_sim",
+      "alert_type": "rule_match",
+      "detected": true,
+      "technique": "T1078"
+    },
+    {
+      "detector": "suricata_snort_sim",
+      "alert_type": "rule_match",
+      "detected": true,
+      "technique": "T1003"
+    },
+    {
+      "detector": "suricata_snort_sim",
+      "alert_type": "rule_match",
+      "detected": true,
+      "technique": "EVASION"
+    },
+    {
+      "detector": "hids_ossec_sim",
+      "alert_type": "bruteforce_pattern",
+      "detected": true,
+      "technique": "BRUTE"
+    }
+  ],
+  "mitre_coverage": [
+    {
+      "technique": "T1078",
+      "v1_detected": 1,
+      "v2_detected": 1
+    },
+    {
+      "technique": "T1003",
+      "v1_detected": 1,
+      "v2_detected": 1
+    },
+    {
+      "technique": "T1021",
+      "v1_detected": 0,
+      "v2_detected": 1
+    },
+    {
+      "technique": "T1027",
+      "v1_detected": 0,
+      "v2_detected": 1
+    }
+  ],
+  "privacy_samples": [
+    {
+      "field": "src_ip",
+      "raw": "10.0.21.11",
+      "anonymized": "d13f4a1be03a12d0"
+    },
+    {
+      "field": "username",
+      "raw": "svc_ops",
+      "anonymized": "f123fd0c11ee0914"
+    },
+    {
+      "field": "target_host",
+      "raw": "ad-mock",
+      "anonymized": "cd0a7ad9a0de2fe1"
+    }
+  ],
+  "storytelling": {
+    "Credential Access Story": [
+      "Step 1: Valid credential appears from a known source host.",
+      "Step 2: Privilege escalation behavior triggers credential dump markers.",
+      "Step 3: Defender correlates source identity and high-risk process behavior."
+    ],
+    "Lateral Movement Story": [
+      "Step 1: A compromised endpoint performs SMB probing.",
+      "Step 2: Impacket-like service execution is detected across victims.",
+      "Step 3: Segmentation and detection policy contain spread."
+    ],
+    "Evasion Story": [
+      "Step 1: Obfuscated marker bypasses v1 signature engine.",
+      "Step 2: v2 rule patch decodes payload and restores detection.",
+      "Step 3: ML anomaly confidence rises and triggers triage."
+    ]
+  },
+  "ctf_score": {
+    "blue_team": 740,
+    "red_team": 510,
+    "privacy_bonus": 120,
+    "total": 860
+  }
+}

@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shadowhunt-detector
+  namespace: shadowhunt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shadowhunt-detector
+  template:
+    metadata:
+      labels:
+        app: shadowhunt-detector
+    spec:
+      containers:
+      - name: detector
+        image: shadowhunt/detector:latest

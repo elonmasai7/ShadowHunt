@@ -1,0 +1,11 @@
+namespace: shadowhunt
+
+images:
+  backend: shadowhunt/backend:latest
+  detector: shadowhunt/detector:latest
+  dashboard: shadowhunt/dashboard:latest
+
+service:
+  backendPort: 8000
+  dashboardPort: 8501
+  demoDashboardPort: 8503

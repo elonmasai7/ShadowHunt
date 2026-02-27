@@ -1,0 +1,6 @@
+apiVersion: v2
+name: shadowhunt
+description: Helm chart skeleton for ShadowHunt cyber-range demo
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

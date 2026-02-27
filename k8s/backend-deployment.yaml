@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shadowhunt-backend
+  namespace: shadowhunt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shadowhunt-backend
+  template:
+    metadata:
+      labels:
+        app: shadowhunt-backend
+    spec:
+      containers:
+      - name: backend
+        image: shadowhunt/backend:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATA_DIR
+          value: /data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shadowhunt-backend
+  namespace: shadowhunt
+spec:
+  selector:
+    app: shadowhunt-backend
+  ports:
+  - port: 8000
+    targetPort: 8000

@@ -1,5 +1,4 @@
-﻿version: "3.9"
-services:
+﻿services:
   backend:
     build: ./backend
     container_name: shadowhunt-backend
@@ -8,7 +7,7 @@ services:
       - ./simulations:/simulations:ro
     environment:
       - DATA_DIR=/data
-    networks: [shadow_net]
+    networks: [shadow_net, victim_net]
     depends_on: [detector]
     ports: ["8000:8000"]
     cap_drop: ["ALL"]
@@ -19,7 +18,7 @@ services:
     container_name: shadowhunt-simulator
     volumes:
       - ./data:/data
-    networks: [shadow_net]
+    networks: [shadow_net, victim_net]
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
 
@@ -31,7 +30,7 @@ services:
       - ./detection/suricata/rules:/etc/suricata/rules:ro
       - ./detection/suricata/suricata.yaml:/etc/suricata/suricata.yaml:ro
       - ./detection/ossec/ossec.conf:/var/ossec/etc/ossec.conf:ro
-    networks: [shadow_net]
+    networks: [shadow_net, victim_net]
     cap_add: ["NET_ADMIN", "NET_RAW"]
     security_opt: ["no-new-privileges:true"]
 
@@ -58,7 +57,46 @@ services:
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
 
+  dashboard_demo:
+    build: ./dashboard
+    container_name: shadowhunt-demo-dashboard
+    command: ["streamlit", "run", "streamlit_demo.py", "--server.address=0.0.0.0", "--server.port=8503"]
+    volumes:
+      - ./data:/data
+    networks: [shadow_net]
+    depends_on: [backend]
+    ports: ["8503:8503"]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  victim_ubuntu_1:
+    image: ubuntu:22.04
+    container_name: shadowhunt-victim-ubuntu-1
+    command: ["bash", "-lc", "sleep infinity"]
+    networks: [victim_net]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  victim_ubuntu_2:
+    image: ubuntu:22.04
+    container_name: shadowhunt-victim-ubuntu-2
+    command: ["bash", "-lc", "sleep infinity"]
+    networks: [victim_net]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+  ad_mock:
+    image: python:3.11-slim
+    container_name: shadowhunt-ad-mock
+    command: ["python", "-m", "http.server", "1389"]
+    networks: [victim_net]
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
 networks:
   shadow_net:
+    driver: bridge
+    internal: true
+  victim_net:
     driver: bridge
     internal: true

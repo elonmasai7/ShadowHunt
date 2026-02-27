@@ -1,0 +1,10 @@
+ShadowHunt deployed.
+
+Backend service:
+  kubectl -n {{ .Values.namespace }} port-forward svc/shadowhunt-backend 8000:{{ .Values.service.backendPort }}
+
+Operations dashboard:
+  kubectl -n {{ .Values.namespace }} port-forward svc/shadowhunt-dashboard 8501:{{ .Values.service.dashboardPort }}
+
+Demo dashboard:
+  kubectl -n {{ .Values.namespace }} port-forward svc/shadowhunt-demo-dashboard 8503:{{ .Values.service.demoDashboardPort }}

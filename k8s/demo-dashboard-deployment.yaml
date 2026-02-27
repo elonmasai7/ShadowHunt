@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shadowhunt-demo-dashboard
+  namespace: shadowhunt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shadowhunt-demo-dashboard
+  template:
+    metadata:
+      labels:
+        app: shadowhunt-demo-dashboard
+    spec:
+      containers:
+      - name: demo-dashboard
+        image: shadowhunt/dashboard:latest
+        command: ["streamlit", "run", "streamlit_demo.py", "--server.address=0.0.0.0", "--server.port=8503"]
+        ports:
+        - containerPort: 8503
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shadowhunt-demo-dashboard
+  namespace: shadowhunt
+spec:
+  selector:
+    app: shadowhunt-demo-dashboard
+  ports:
+  - port: 8503
+    targetPort: 8503

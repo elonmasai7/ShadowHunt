@@ -1,0 +1,23 @@
+{
+  "generated_at": "2026-02-27T18:55:00Z",
+  "mode": "legacy",
+  "running": false,
+  "totals": {
+    "attack_count": 84,
+    "alert_count": 96,
+    "false_positives": 7,
+    "evasion_attempts": 18,
+    "evasion_success": 6
+  },
+  "mitre_coverage": {
+    "T1078": 18,
+    "T1003": 16,
+    "T1021": 14,
+    "BRUTE": 18,
+    "EVASION": 18
+  },
+  "verification": {
+    "sha256": "f2f28b8db90e9809f9a9e50ea46ea627f6a203a7d270234f4db0d5b8d04878c6",
+    "ledger_sim": "block://shadowhunt/f2f28b8db90e9809f9a9e50e"
+  }
+}

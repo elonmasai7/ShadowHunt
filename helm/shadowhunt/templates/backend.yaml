@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shadowhunt-backend
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shadowhunt-backend
+  template:
+    metadata:
+      labels:
+        app: shadowhunt-backend
+    spec:
+      containers:
+      - name: backend
+        image: {{ .Values.images.backend }}
+        ports:
+        - containerPort: {{ .Values.service.backendPort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shadowhunt-backend
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: shadowhunt-backend
+  ports:
+  - port: {{ .Values.service.backendPort }}
+    targetPort: {{ .Values.service.backendPort }}

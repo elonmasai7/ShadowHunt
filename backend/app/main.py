@@ -1,18 +1,29 @@
 ﻿from datetime import datetime, timezone
-import glob
+from pathlib import Path
+import asyncio
 import json
-import os
-import subprocess
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import psutil
 
-app = FastAPI(title="ShadowHunt API", version="0.2.0")
+from .reporting import generate_report
+from .simulation_engine import AttackRequest, AttackSimulationEngine
+from .telemetry import RuntimeState, TelemetryHub
+
+app = FastAPI(title="ShadowHunt API", version="1.0.0")
+
+PROFILES = ["low", "medium", "high"]
+
+state = RuntimeState()
+telemetry = TelemetryHub(state)
+engine = AttackSimulationEngine(state, telemetry)
 
 
 class SimRequest(BaseModel):
     technique: str
+    evasion: bool = False
+    count: int = 20
 
 
 class ChainRequest(BaseModel):
@@ -21,17 +32,21 @@ class ChainRequest(BaseModel):
     evasion: bool = False
 
 
-SIM_MAP = {
-    "T1078": "/simulations/t1078_valid_accounts_sim.py",
-    "T1003": "/simulations/t1003_credential_access_sim.py",
-    "T1021": "/simulations/t1021_lateral_movement_sim.py",
-}
-PROFILES = ["low", "medium", "high"]
+class ToggleRequest(BaseModel):
+    enabled: bool = True
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    telemetry.set_loop(asyncio.get_running_loop())
+    Path("/data/events").mkdir(parents=True, exist_ok=True)
+    Path("/data/alerts").mkdir(parents=True, exist_ok=True)
+    Path("/data/reports").mkdir(parents=True, exist_ok=True)
 
 
 @app.get("/")
 def root():
-    return {"service": "shadowhunt-backend", "status": "ok"}
+    return {"service": "shadowhunt-backend", "status": "ok", "mode": state.mode}
 
 
 @app.get("/profiles")
@@ -41,25 +56,22 @@ def profiles():
 
 @app.post("/start_sim")
 def start_sim(req: SimRequest):
-    script = SIM_MAP.get(req.technique)
-    if not script:
-        return {"ok": False, "error": "Unsupported technique"}
-    subprocess.Popen(["python", script])
-    return {"ok": True, "started": req.technique}
+    return engine.trigger_attack(AttackRequest(technique=req.technique, evasion=req.evasion, count=req.count))
+
+
+@app.post("/trigger_attack")
+def trigger_attack(req: SimRequest):
+    return engine.trigger_attack(AttackRequest(technique=req.technique, evasion=req.evasion, count=req.count))
 
 
 @app.post("/start_chain")
+@app.post("/start_simulation")
 def start_chain(req: ChainRequest):
     if req.profile not in PROFILES:
         return {"ok": False, "error": "Unsupported profile"}
-
-    cmd = ["python", "/simulations/attack_chain_sim.py", "--profile", req.profile]
-    if req.include_noise:
-        cmd.append("--noise")
-    if req.evasion:
-        cmd.append("--evasion")
-
-    subprocess.Popen(cmd)
+    started = engine.start_chain(req.profile, req.include_noise, req.evasion)
+    if not started:
+        return {"ok": False, "error": "Simulation already running"}
     return {
         "ok": True,
         "started": "attack_chain",
@@ -69,62 +81,103 @@ def start_chain(req: ChainRequest):
     }
 
 
+@app.post("/stop_sim")
+@app.post("/stop_simulation")
+def stop_sim():
+    engine.stop()
+    return {"ok": True, "stopped": True}
+
+
 @app.post("/detection/mode/{mode}")
 def set_detection_mode(mode: str):
     if mode not in ["legacy", "hardened"]:
         return {"ok": False, "error": "mode must be legacy or hardened"}
-
-    subprocess.run(["python", "/simulations/set_detection_mode.py", "--mode", mode], check=False)
+    with state.lock:
+        state.mode = mode
+    telemetry.publish({"kind": "mode_change", "mode": mode, "snapshot": state.snapshot()})
     return {"ok": True, "mode": mode}
 
 
-@app.get("/detect")
-def detect():
-    path = "/data/alerts/ml_alerts_private.jsonl"
-    if not os.path.exists(path):
-        return {"alerts": []}
+@app.post("/privacy/anonymize")
+def set_anonymize(req: ToggleRequest):
+    with state.lock:
+        state.anonymize_logs = req.enabled
+    return {"ok": True, "anonymize_logs": state.anonymize_logs}
 
-    alerts = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            alerts.append(json.loads(line))
-    return {"alerts": alerts[-200:]}
+
+@app.post("/lab/reset")
+def reset_lab():
+    engine.stop()
+    state.clear()
+    for p in Path("/data/events").glob("*.jsonl"):
+        p.unlink(missing_ok=True)
+    for p in Path("/data/alerts").glob("*.jsonl"):
+        p.unlink(missing_ok=True)
+    return {"ok": True}
+
+
+@app.get("/detect")
+@app.get("/get_alerts")
+def detect():
+    return {"alerts": state.snapshot()["alerts"]}
 
 
 @app.get("/coverage")
 def coverage():
-    path = "/data/alerts/coverage.json"
-    if not os.path.exists(path):
-        return {
-            "coverage_score": 0.0,
-            "summary": [],
-            "gaps": [],
-            "totals": {"executed": 0, "detected": 0, "false_positives": 0},
-            "detection_mode": "legacy",
+    snap = state.snapshot()
+    executed = sum(snap["mitre_coverage"].values())
+    detected = sum(1 for a in snap["alerts"] if a.get("detected"))
+    coverage_score = round((detected / executed) * 100, 2) if executed else 0.0
+    summary = [
+        {
+            "technique": k,
+            "executed": v,
+            "detected": sum(
+                1 for a in snap["alerts"] if a.get("technique") == k and a.get("detected")
+            ),
         }
-
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        for k, v in snap["mitre_coverage"].items()
+    ]
+    return {
+        "coverage_score": coverage_score,
+        "summary": summary,
+        "gaps": [row for row in summary if row["executed"] > row["detected"]],
+        "totals": {
+            "executed": executed,
+            "detected": detected,
+            "false_positives": snap["false_positives"],
+        },
+        "detection_mode": snap["mode"],
+    }
 
 
 @app.get("/report")
 def report():
-    files = glob.glob("/data/events/*.jsonl")
+    snap = state.snapshot()
     counts = {}
-    for p in files:
-        name = os.path.basename(p)
-        key = name.replace("_events.jsonl", "").upper()
-        with open(p, "r", encoding="utf-8") as f:
-            counts[key] = sum(1 for _ in f)
+    for event in snap["attack_timeline"]:
+        technique = event.get("technique", "N/A")
+        counts[technique] = counts.get(technique, 0) + 1
     return {"event_counts": counts}
 
 
+@app.get("/generate_report")
+def get_generate_report():
+    return generate_report(state)
+
+
+@app.get("/replay")
+def replay():
+    return {"events": state.snapshot()["replay_events"]}
+
+
+@app.get("/get_metrics")
 @app.get("/system/metrics")
 def system_metrics():
     disk = psutil.disk_usage("/")
     mem = psutil.virtual_memory()
     cpu = psutil.cpu_percent(interval=0.2)
-
+    snap = state.snapshot()
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
         "cpu_percent": cpu,
@@ -134,22 +187,35 @@ def system_metrics():
         "disk_percent": disk.percent,
         "disk_used_gb": round(disk.used / (1024 * 1024 * 1024), 2),
         "disk_total_gb": round(disk.total / (1024 * 1024 * 1024), 2),
+        "network_mbps": round(psutil.net_io_counters().bytes_sent / (1024 * 1024), 2),
+        "pcap_enabled": snap["pcap_enabled"],
+        "running": snap["running"],
+        "false_positive_rate": round((snap["false_positives"] / max(snap["alert_count"], 1)) * 100, 2),
+        "ml_anomaly_latest": snap["ml_confidence"][-1]["confidence"] if snap["ml_confidence"] else 0.0,
+        "evasion_success_rate": round((snap["evasion_success"] / max(snap["evasion_attempts"], 1)) * 100, 2),
     }
 
 
 @app.get("/system/status")
 def system_status():
-    event_files = glob.glob("/data/events/*.jsonl")
-    alert_files = glob.glob("/data/alerts/*.jsonl")
-    mode_file = "/data/config/detection_mode.json"
-    mode = "legacy"
-    if os.path.exists(mode_file):
-        with open(mode_file, "r", encoding="utf-8") as f:
-            mode = json.load(f).get("mode", "legacy")
-
+    snap = state.snapshot()
     return {
-        "event_files": len(event_files),
-        "alert_files": len(alert_files),
-        "model_present": os.path.exists("/data/models/iforest.joblib"),
-        "detection_mode": mode,
+        "event_files": len(list(Path("/data/events").glob("*.jsonl"))),
+        "alert_files": len(list(Path("/data/alerts").glob("*.jsonl"))),
+        "model_present": True,
+        "detection_mode": snap["mode"],
+        "running": snap["running"],
     }
+
+
+@app.websocket("/ws/telemetry")
+async def ws_telemetry(ws: WebSocket):
+    await telemetry.connect(ws)
+    try:
+        while True:
+            await ws.send_json({"kind": "snapshot", "snapshot": state.snapshot()})
+            await asyncio.sleep(1.0)
+    except WebSocketDisconnect:
+        telemetry.disconnect(ws)
+    except Exception:
+        telemetry.disconnect(ws)

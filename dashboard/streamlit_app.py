@@ -1,81 +1,160 @@
-﻿import pandas as pd
+﻿import json
+import threading
+import time
+
+import pandas as pd
 import requests
 import streamlit as st
+from websocket import create_connection
 
 API = "http://backend:8000"
+WS = "ws://backend:8000/ws/telemetry"
 
-st.set_page_config(page_title="ShadowHunt", layout="wide")
-st.title("ShadowHunt - ATT&CK Simulation Monitor")
+
+def api_get(path: str) -> dict:
+    return requests.get(f"{API}{path}", timeout=10).json()
+
+
+def api_post(path: str, payload: dict | None = None) -> dict:
+    return requests.post(f"{API}{path}", json=payload or {}, timeout=15).json()
+
+
+def start_ws_listener() -> None:
+    if st.session_state.get("ws_started"):
+        return
+    st.session_state.ws_started = True
+    st.session_state.live_messages = []
+
+    def worker() -> None:
+        while True:
+            try:
+                ws = create_connection(WS, timeout=10)
+                while True:
+                    raw = ws.recv()
+                    msg = json.loads(raw)
+                    buf = st.session_state.live_messages
+                    buf.append(msg)
+                    if len(buf) > 300:
+                        del buf[: len(buf) - 300]
+            except Exception:
+                time.sleep(1)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+st.set_page_config(page_title="ShadowHunt Real Dashboard", layout="wide")
+st.markdown(
+    """
+    <style>
+    .stApp { background: radial-gradient(circle at top left, #16263a 0%, #0a1018 60%, #080b10 100%); color: #e4eef8; }
+    .panel { border: 1px solid #203247; border-radius: 12px; padding: 14px; background: rgba(17,26,39,0.75); }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.title("ShadowHunt: Operational Real-Time Threat Simulation")
+start_ws_listener()
 
 with st.sidebar:
-    st.header("Adversary Emulation")
+    st.header("Control Panel")
     profile = st.selectbox("Profile", ["low", "medium", "high"], index=1)
-    include_noise = st.checkbox("Include realistic noise", value=True)
-    evasion = st.checkbox("Use benign encoded markers (evasion)", value=False)
+    include_noise = st.checkbox("Include Noise", value=True)
+    evasion_mode = st.checkbox("Toggle Evasion Mode", value=False)
+    anonymize = st.checkbox("Log Anonymization", value=True)
+    technique = st.selectbox("Trigger Specific Technique", ["T1078", "T1003", "T1021", "BRUTE", "EVASION"])
+    attack_count = st.slider("Technique Iterations", 5, 60, 15)
+    c1, c2 = st.columns(2)
+    if c1.button("Start Simulation"):
+        api_post("/start_simulation", {"profile": profile, "include_noise": include_noise, "evasion": evasion_mode})
+    if c2.button("Stop Simulation"):
+        api_post("/stop_sim")
+    c3, c4 = st.columns(2)
+    if c3.button("Trigger Attack"):
+        api_post("/trigger_attack", {"technique": technique, "evasion": evasion_mode, "count": attack_count})
+    if c4.button("Reset Lab"):
+        api_post("/lab/reset")
+    if st.button("Set Legacy v1"):
+        api_post("/detection/mode/legacy")
+    if st.button("Set Hardened v2"):
+        api_post("/detection/mode/hardened")
+    api_post("/privacy/anonymize", {"enabled": anonymize})
+    if st.button("Export Report (JSON + PDF)"):
+        rep = api_get("/generate_report")
+        st.success(f"Generated: {rep.get('json_report')} and {rep.get('pdf_report')}")
 
-    if st.button("Run Attack Chain"):
-        requests.post(
-            f"{API}/start_chain",
-            json={"profile": profile, "include_noise": include_noise, "evasion": evasion},
-            timeout=15,
-        )
+metrics = api_get("/get_metrics")
+coverage = api_get("/coverage")
+alerts = api_get("/get_alerts").get("alerts", [])
+replay = api_get("/replay").get("events", [])
+timeline = coverage.get("summary", [])
 
-    st.divider()
-    st.header("Detection Hardening")
-    if st.button("Set Legacy Mode"):
-        requests.post(f"{API}/detection/mode/legacy", timeout=10)
-    if st.button("Set Hardened Mode"):
-        requests.post(f"{API}/detection/mode/hardened", timeout=10)
+k1, k2, k3, k4, k5 = st.columns(5)
+k1.metric("Simulation", "RUNNING" if metrics.get("running") else "IDLE")
+k2.metric("CPU %", f"{metrics.get('cpu_percent', 0):.1f}")
+k3.metric("Memory %", f"{metrics.get('memory_percent', 0):.1f}")
+k4.metric("Network MB", metrics.get("network_mbps", 0))
+k5.metric("PCAP Capture", "ON" if metrics.get("pcap_enabled") else "OFF")
 
-st.subheader("Technique Simulators")
-c1, c2, c3 = st.columns(3)
-if c1.button("Run T1078"):
-    requests.post(f"{API}/start_sim", json={"technique": "T1078"}, timeout=10)
-if c2.button("Run T1003"):
-    requests.post(f"{API}/start_sim", json={"technique": "T1003"}, timeout=10)
-if c3.button("Run T1021"):
-    requests.post(f"{API}/start_sim", json={"technique": "T1021"}, timeout=10)
-
-try:
-    report = requests.get(f"{API}/report", timeout=10).json()
-    alerts = requests.get(f"{API}/detect", timeout=10).json().get("alerts", [])
-    coverage = requests.get(f"{API}/coverage", timeout=10).json()
-except Exception as exc:
-    st.error(f"Backend unavailable: {exc}")
-    st.stop()
-
-event_counts = report.get("event_counts", {})
-
-st.subheader("Event Volume")
-if event_counts:
-    st.bar_chart(pd.DataFrame([event_counts]).T.rename(columns={0: "count"}))
-else:
-    st.info("No simulation events yet.")
-
-st.subheader("Coverage Score")
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("Coverage %", f"{coverage.get('coverage_score', 0.0):.2f}")
-totals = coverage.get("totals", {})
-k2.metric("Executed", totals.get("executed", 0))
-k3.metric("Detected", totals.get("detected", 0))
-k4.metric("False Positives", totals.get("false_positives", 0))
-st.caption(f"Detection mode: {coverage.get('detection_mode', 'legacy')}")
-
-st.subheader("ATT&CK Gap Analysis")
-summary_df = pd.DataFrame(coverage.get("summary", []))
-if not summary_df.empty:
-    st.dataframe(summary_df, use_container_width=True)
-    gap_df = pd.DataFrame(coverage.get("gaps", []))
-    if not gap_df.empty:
-        st.warning("Coverage gaps detected")
-        st.dataframe(gap_df, use_container_width=True)
+c1, c2 = st.columns([2, 1])
+with c1:
+    st.subheader("Live Attack Feed Timeline")
+    if replay:
+        feed = pd.DataFrame(replay).tail(80)[["ts", "technique", "action", "result"]]
+        st.dataframe(feed, use_container_width=True, height=280)
     else:
-        st.success("No ATT&CK gaps for currently simulated techniques")
-else:
-    st.info("No coverage data yet.")
+        st.info("No live events yet.")
+with c2:
+    st.subheader("False Positive Rate")
+    st.metric("FPR %", f"{metrics.get('false_positive_rate', 0):.2f}")
+    st.subheader("ML Anomaly Confidence")
+    conf = [a.get("ml_confidence", 0.0) for a in alerts if "ml_confidence" in a][-40:]
+    if conf:
+        st.line_chart(pd.DataFrame({"confidence": conf}))
+    else:
+        st.caption("Awaiting ML telemetry")
 
-st.subheader("Recent Alerts (Privacy-preserved)")
-if alerts:
-    st.dataframe(pd.DataFrame(alerts).tail(100), use_container_width=True)
+r1, r2 = st.columns(2)
+with r1:
+    st.subheader("ATT&CK Matrix Coverage Heatmap")
+    cov_rows = coverage.get("summary", [])
+    if cov_rows:
+        heat = pd.DataFrame(cov_rows)
+        heat["coverage"] = (heat["detected"] / heat["executed"].clip(lower=1) * 100).round(2)
+        st.dataframe(
+            heat[["technique", "executed", "detected", "coverage"]],
+            use_container_width=True,
+            height=230,
+        )
+    else:
+        st.info("No coverage records.")
+with r2:
+    st.subheader("Detection vs Evasion Success")
+    evasion_success = metrics.get("evasion_success_rate", 0)
+    det_rate = coverage.get("coverage_score", 0)
+    graph = pd.DataFrame(
+        [{"metric": "Detection", "value": det_rate}, {"metric": "Evasion Success", "value": evasion_success}]
+    ).set_index("metric")
+    st.bar_chart(graph)
+
+s1, s2 = st.columns(2)
+with s1:
+    st.subheader("Active Alerts Panel")
+    if alerts:
+        st.dataframe(pd.DataFrame(alerts).tail(100), use_container_width=True, height=300)
+    else:
+        st.info("No alerts yet.")
+with s2:
+    st.subheader("Attack Chain Visualization")
+    if replay:
+        graph_df = pd.DataFrame(replay).tail(60)
+        chain = graph_df[["step_number", "technique", "action"]].fillna("")
+        st.dataframe(chain, use_container_width=True, height=300)
+    else:
+        st.caption("Start simulation to populate chain graph.")
+
+st.subheader("Attack Replay Mode")
+if replay:
+    idx = st.slider("Replay Event", 0, len(replay) - 1, len(replay) - 1)
+    st.json(replay[idx])
 else:
-    st.info("No alerts yet.")
+    st.caption("Replay buffer empty.")

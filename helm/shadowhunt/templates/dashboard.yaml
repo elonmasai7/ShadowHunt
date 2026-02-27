@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shadowhunt-dashboard
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shadowhunt-dashboard
+  template:
+    metadata:
+      labels:
+        app: shadowhunt-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: {{ .Values.images.dashboard }}
+        command: ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port={{ .Values.service.dashboardPort }}"]
+        ports:
+        - containerPort: {{ .Values.service.dashboardPort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shadowhunt-dashboard
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: shadowhunt-dashboard
+  ports:
+  - port: {{ .Values.service.dashboardPort }}
+    targetPort: {{ .Values.service.dashboardPort }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shadowhunt-demo-dashboard
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shadowhunt-demo-dashboard
+  template:
+    metadata:
+      labels:
+        app: shadowhunt-demo-dashboard
+    spec:
+      containers:
+      - name: demo-dashboard
+        image: {{ .Values.images.dashboard }}
+        command: ["streamlit", "run", "streamlit_demo.py", "--server.address=0.0.0.0", "--server.port={{ .Values.service.demoDashboardPort }}"]
+        ports:
+        - containerPort: {{ .Values.service.demoDashboardPort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shadowhunt-demo-dashboard
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: shadowhunt-demo-dashboard
+  ports:
+  - port: {{ .Values.service.demoDashboardPort }}
+    targetPort: {{ .Values.service.demoDashboardPort }}
